@@ -267,6 +267,12 @@ pub enum VarAt {
     Pre,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum InvAtomicity {
+    Atomic,
+    NonAtomic,
+}
+
 /// Expression, similar to rustc_hir::Expr
 pub type Expr = Arc<SpannedTyped<ExprX>>;
 pub type Exprs = Arc<Vec<Expr>>;
@@ -322,7 +328,7 @@ pub enum ExprX {
     /// While loop, with invariants
     While { cond: Expr, body: Expr, invs: Exprs },
     /// Open invariant
-    OpenInvariant(Expr, Binder<Typ>, Expr),
+    OpenInvariant(Expr, Binder<Typ>, Expr, InvAtomicity),
     /// Return from function
     Return(Option<Expr>),
     /// Sequence of statements, optionally including an expression at the end

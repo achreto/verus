@@ -6,6 +6,10 @@
 
 // note the names of `inv` and `namespace` are harcoded into the VIR crate.
 
+// LocalInvariant is NEVER `Sync`.
+// Other than that, Invariant & LocalInvariant both inherit
+// Sync/Send-ness from the inner type.
+
 #[proof]
 #[verifier(external_body)]
 pub struct Invariant<#[verifier(maybe_negative)] V> {
@@ -13,52 +17,66 @@ pub struct Invariant<#[verifier(maybe_negative)] V> {
 }
 
 #[proof]
-impl<V> Invariant<V> {
-    #[verifier(external_body)]
-    #[spec]
-    pub fn inv(&self, _v: V) -> bool {
-        unimplemented!()
-    }
+#[verifier(external_body)]
+pub struct LocalInvariant<#[verifier(maybe_negative)] V> {
+    dummy: std::marker::PhantomData<V>,
+    dummy_no_sync: PhantomNoSync,
+}
 
-    #[proof]
-    #[verifier(external_body)]
-    #[verifier(returns(proof))]
-    pub fn new<F: Fn(V) -> bool>(#[proof] v: V, #[spec] inv: F, #[spec] ns: int) -> Invariant<V> {
-        requires([
-            inv(v),
-        ]);
-        ensures(|i: Invariant<V>|
-            forall(|v: V| i.inv(v) == inv(v)) // TODO replace this with function equality?
-            && equal(i.namespace(), ns)
-        );
+macro_rules! declare_invariant_impl {
+    ($invariant:ident) => {
+        #[proof]
+        impl<V> $invariant<V> {
+            #[verifier(external_body)]
+            #[spec]
+            pub fn inv(&self, _v: V) -> bool {
+                unimplemented!()
+            }
 
-        unimplemented!();
-    }
+            #[proof]
+            #[verifier(external_body)]
+            #[verifier(returns(proof))]
+            pub fn new<F: Fn(V) -> bool>(#[proof] v: V, #[spec] inv: F, #[spec] ns: int) -> $invariant<V> {
+                requires([
+                    inv(v),
+                ]);
+                ensures(|i: $invariant<V>|
+                    forall(|v: V| i.inv(v) == inv(v)) // TODO replace this with function equality?
+                    && equal(i.namespace(), ns)
+                );
 
-    // If you want to open two invariants I and J at the same time,
-    // you need to show that I.namespace() != J.namespace()
-    // The namespace can be declared upon allocation of the invariant.
+                unimplemented!();
+            }
 
-    #[verifier(external_body)]
-    #[spec]
-    pub fn namespace(&self) -> int {
-        unimplemented!()
-    }
+            // If you want to open two invariants I and J at the same time,
+            // you need to show that I.namespace() != J.namespace()
+            // The namespace can be declared upon allocation of the invariant.
 
-    #[proof]
-    #[verifier(external_body)]
-    #[verifier(returns(proof))]
-    pub fn into_inner(#[proof] self) -> V {
-        ensures(|v: V| self.inv(v));
+            #[verifier(external_body)]
+            #[spec]
+            pub fn namespace(&self) -> int {
+                unimplemented!()
+            }
 
-        unimplemented!();
+            #[proof]
+            #[verifier(external_body)]
+            #[verifier(returns(proof))]
+            pub fn into_inner(#[proof] self) -> V {
+                ensures(|v: V| self.inv(v));
+
+                unimplemented!();
+            }
+        }
     }
 }
+
+declare_invariant_impl!(Invariant);
+declare_invariant_impl!(LocalInvariant);
 
 #[proof]
 pub struct InvariantBlockGuard;
 
-// NOTE: These 2 methods are removed in the conversion to VIR; they are only used
+// NOTE: These 3 methods are removed in the conversion to VIR; they are only used
 // for encoding and borrow-checking.
 // In the VIR these are all replaced by the OpenInvariant block.
 // This means that the bodies, preconditions, and even their modes are not important.
@@ -83,6 +101,12 @@ pub fn open_invariant_begin<'a, V>(_inv: &'a Invariant<V>) -> (&'a InvariantBloc
 }
 
 #[verifier(external_body)]
+pub fn open_local_invariant_begin<'a, V>(_inv: &'a LocalInvariant<V>) -> (&'a InvariantBlockGuard, V) {
+    requires([false]);
+    unimplemented!();
+}
+
+#[verifier(external_body)]
 pub fn open_invariant_end<V>(_guard: &InvariantBlockGuard, _v: V) {
     requires([false]);
     unimplemented!();
@@ -93,6 +117,17 @@ macro_rules! open_invariant {
     ($eexpr:expr => $iident:ident => $bblock:block) => {
         #[verifier(invariant_block)] {
             #[allow(unused_mut)] let (guard, mut $iident) = $crate::pervasive::invariants::open_invariant_begin($eexpr);
+            $bblock
+            $crate::pervasive::invariants::open_invariant_end(guard, $iident);
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! open_local_invariant {
+    ($eexpr:expr => $iident:ident => $bblock:block) => {
+        #[verifier(invariant_block)] {
+            #[allow(unused_mut)] let (guard, mut $iident) = $crate::pervasive::invariants::open_local_invariant_begin($eexpr);
             $bblock
             $crate::pervasive::invariants::open_invariant_end(guard, $iident);
         }
